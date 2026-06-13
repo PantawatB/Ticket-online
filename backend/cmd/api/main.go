@@ -88,6 +88,7 @@ type Seat struct {
 type Booking struct {
 	ID         string    `bson:"_id" json:"id"`
 	UserID     string    `bson:"user_id" json:"user_id"`
+	UserName   string    `bson:"user_name" json:"user_name"`
 	UserEmail  string    `bson:"user_email" json:"user_email"`
 	ShowtimeID string    `bson:"showtime_id" json:"showtime_id"`
 	SeatID     string    `bson:"seat_id" json:"seat_id"`
@@ -279,10 +280,8 @@ func (a *App) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectURL, _ := url.Parse(a.cfg.FrontendURL)
-	query := redirectURL.Query()
-	query.Set("token", token)
-	redirectURL.RawQuery = query.Encode()
 	http.SetCookie(w, &http.Cookie{Name: "oauth_state", Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "ticket_token", Value: token, Path: "/", SameSite: http.SameSiteLaxMode, MaxAge: 86400})
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
@@ -411,6 +410,10 @@ func (a *App) handleShowtimeAction(w http.ResponseWriter, r *http.Request) {
 		a.handleLockSeat(w, r, parts[0], parts[2])
 		return
 	}
+	if len(parts) == 4 && parts[1] == "seats" && parts[3] == "release" && r.Method == http.MethodPost {
+		a.handleReleaseSeat(w, r, parts[0], parts[2])
+		return
+	}
 	writeError(w, http.StatusNotFound, "not found")
 }
 
@@ -454,6 +457,27 @@ func (a *App) handleLockSeat(w http.ResponseWriter, r *http.Request, showtimeID,
 	writeJSON(w, http.StatusOK, map[string]any{"seat_id": seatID, "status": statusLocked, "expires_at": expiresAt})
 }
 
+func (a *App) handleReleaseSeat(w http.ResponseWriter, r *http.Request, showtimeID, seatID string) {
+	user := currentUser(r)
+	res, err := a.db.Collection("showtimes").UpdateOne(
+		r.Context(),
+		bson.M{"_id": showtimeID, "seats": bson.M{"$elemMatch": bson.M{"id": seatID, "status": statusLocked, "locked_by": user.ID}}},
+		bson.M{"$set": bson.M{"seats.$.status": statusAvailable}, "$unset": bson.M{"seats.$.locked_by": "", "seats.$.lock_expires_at": ""}},
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if res.ModifiedCount != 1 {
+		writeError(w, http.StatusConflict, "seat is not locked by this user")
+		return
+	}
+	_ = a.redis.Del(r.Context(), seatLockKey(showtimeID, seatID)).Err()
+	a.publishEvent(r.Context(), BookingEvent{Type: "Seat Released", Message: "seat released by user", UserID: user.ID, ShowtimeID: showtimeID, SeatID: seatID})
+	a.broadcastSeats(r.Context(), showtimeID)
+	writeJSON(w, http.StatusOK, map[string]any{"seat_id": seatID, "status": statusAvailable})
+}
+
 func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	var input struct {
@@ -473,7 +497,7 @@ func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "seat is not locked by this user or lock expired")
 		return
 	}
-	booking := Booking{ID: randomID(), UserID: user.ID, UserEmail: user.Email, ShowtimeID: input.ShowtimeID, SeatID: input.SeatID, Status: "CONFIRMED", CreatedAt: time.Now().UTC()}
+	booking := Booking{ID: randomID(), UserID: user.ID, UserName: user.Name, UserEmail: user.Email, ShowtimeID: input.ShowtimeID, SeatID: input.SeatID, Status: "CONFIRMED", CreatedAt: time.Now().UTC()}
 	if _, err := a.db.Collection("bookings").InsertOne(r.Context(), booking); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -634,7 +658,7 @@ func (a *App) seed(ctx context.Context) error {
 		return err
 	}
 	if count > 0 {
-		return nil
+		return a.ensureSeatCapacity(ctx)
 	}
 	now := time.Now().UTC()
 	showtimes := []any{
@@ -647,12 +671,48 @@ func (a *App) seed(ctx context.Context) error {
 
 func makeSeats() []Seat {
 	var seats []Seat
-	for _, row := range []string{"A", "B", "C", "D"} {
-		for number := 1; number <= 8; number++ {
+	for _, row := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+		for number := 1; number <= 12; number++ {
 			seats = append(seats, Seat{ID: fmt.Sprintf("%s%d", row, number), Row: row, Number: number, Status: statusAvailable})
 		}
 	}
 	return seats
+}
+
+func (a *App) ensureSeatCapacity(ctx context.Context) error {
+	cursor, err := a.db.Collection("showtimes").Find(ctx, bson.M{})
+	if err != nil {
+		return err
+	}
+	var showtimes []Showtime
+	if err := cursor.All(ctx, &showtimes); err != nil {
+		return err
+	}
+	desiredSeats := makeSeats()
+	for _, showtime := range showtimes {
+		existing := map[string]bool{}
+		for _, seat := range showtime.Seats {
+			existing[seat.ID] = true
+		}
+		var missing []any
+		for _, seat := range desiredSeats {
+			if !existing[seat.ID] {
+				missing = append(missing, seat)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		_, err := a.db.Collection("showtimes").UpdateOne(
+			ctx,
+			bson.M{"_id": showtime.ID},
+			bson.M{"$push": bson.M{"seats": bson.M{"$each": missing}}},
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) publishEvent(ctx context.Context, event BookingEvent) {

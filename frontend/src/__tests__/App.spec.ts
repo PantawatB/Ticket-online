@@ -6,7 +6,7 @@ import App from '../App.vue'
 describe('App', () => {
   it('mounts renders properly', () => {
     const wrapper = mount(App)
-    expect(wrapper.text()).toContain('Cinema Ticket Booking')
-    expect(wrapper.text()).toContain('Login with Google')
+    expect(wrapper.text()).toContain('Continue with Google')
+    expect(wrapper.text()).toContain('Week Top Events')
   })
 })
