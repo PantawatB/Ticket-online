@@ -1,0 +1,45 @@
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      PORT: 8080
+      MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017}
+      MONGO_DB: ${MONGO_DB:-ticket_online}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LOCK_TTL: ${LOCK_TTL:-5m}
+    depends_on:
+      - mongodb
+      - redis
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8080
+      VITE_WS_URL: ws://localhost:8080
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+
+volumes:
+  mongo-data:
