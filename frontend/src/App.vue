@@ -34,6 +34,7 @@ interface Booking {
   user_name?: string
   user_email: string
   showtime_id: string
+  event_title?: string
   seat_id: string
   status: string
   created_at: string
@@ -110,7 +111,7 @@ const marketingEvents: MarketingEvent[] = [
     category: 'Concert',
     price: '€ 60.90',
     description: 'A compact live show experience mapped to realtime seat locking and mock checkout.',
-    showtimeId: 'show-002',
+    showtimeId: 'show-003',
     posterClass: 'poster-troh',
   },
   {
@@ -121,7 +122,7 @@ const marketingEvents: MarketingEvent[] = [
     category: 'Festival',
     price: '€ 95.50',
     description: 'Weekend pass preview with realtime availability and a five-minute reservation timer.',
-    showtimeId: 'show-001',
+    showtimeId: 'show-002',
     posterClass: 'poster-lalala',
   },
   {
@@ -132,7 +133,7 @@ const marketingEvents: MarketingEvent[] = [
     category: 'Jazz',
     price: '€ 99.00',
     description: 'A seated event demo where ticket purchase starts with a temporary distributed lock.',
-    showtimeId: 'show-002',
+    showtimeId: 'show-004',
     posterClass: 'poster-get',
   },
 ]
@@ -428,7 +429,11 @@ async function confirmBooking() {
     for (const seat of seatsToConfirm) {
       await request('/api/bookings/confirm', {
         method: 'POST',
-        body: JSON.stringify({ showtime_id: selectedShowtimeId.value, seat_id: seat.id }),
+        body: JSON.stringify({
+          showtime_id: selectedShowtimeId.value,
+          seat_id: seat.id,
+          event_title: selectedEvent.value?.title ?? '',
+        }),
       })
     }
     message.value = `Booking confirmed for ${seatsToConfirm.map((seat) => seat.id).join(', ')}.`
@@ -528,7 +533,7 @@ function formatMoney(value: number) {
 }
 
 function bookingEventName(booking: Booking) {
-  return eventByShowtime.value.get(booking.showtime_id)?.title || booking.showtime_id
+  return booking.event_title || eventByShowtime.value.get(booking.showtime_id)?.title || booking.showtime_id
 }
 </script>
 

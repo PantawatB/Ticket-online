@@ -31,7 +31,7 @@ const (
 	statusAvailable = "AVAILABLE"
 	statusLocked    = "LOCKED"
 	statusBooked    = "BOOKED"
-	eventChannel     = "booking-events"
+	eventChannel    = "booking-events"
 )
 
 type Config struct {
@@ -91,6 +91,7 @@ type Booking struct {
 	UserName   string    `bson:"user_name" json:"user_name"`
 	UserEmail  string    `bson:"user_email" json:"user_email"`
 	ShowtimeID string    `bson:"showtime_id" json:"showtime_id"`
+	EventTitle string    `bson:"event_title,omitempty" json:"event_title,omitempty"`
 	SeatID     string    `bson:"seat_id" json:"seat_id"`
 	Status     string    `bson:"status" json:"status"`
 	CreatedAt  time.Time `bson:"created_at" json:"created_at"`
@@ -482,6 +483,7 @@ func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	var input struct {
 		ShowtimeID string `json:"showtime_id"`
+		EventTitle string `json:"event_title"`
 		SeatID     string `json:"seat_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.ShowtimeID == "" || input.SeatID == "" {
@@ -497,7 +499,17 @@ func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "seat is not locked by this user or lock expired")
 		return
 	}
-	booking := Booking{ID: randomID(), UserID: user.ID, UserName: user.Name, UserEmail: user.Email, ShowtimeID: input.ShowtimeID, SeatID: input.SeatID, Status: "CONFIRMED", CreatedAt: time.Now().UTC()}
+	booking := Booking{
+		ID:         randomID(),
+		UserID:     user.ID,
+		UserName:   user.Name,
+		UserEmail:  user.Email,
+		ShowtimeID: input.ShowtimeID,
+		EventTitle: input.EventTitle,
+		SeatID:     input.SeatID,
+		Status:     "CONFIRMED",
+		CreatedAt:  time.Now().UTC(),
+	}
 	if _, err := a.db.Collection("bookings").InsertOne(r.Context(), booking); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -653,20 +665,7 @@ func seatLockKey(showtimeID, seatID string) string {
 }
 
 func (a *App) seed(ctx context.Context) error {
-	count, err := a.db.Collection("showtimes").CountDocuments(ctx, bson.M{})
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		return a.ensureSeatCapacity(ctx)
-	}
-	now := time.Now().UTC()
-	showtimes := []any{
-		Showtime{ID: "show-001", Movie: "The Distributed Seat", Theater: "Cinema 1", StartsAt: now.Add(2 * time.Hour), Seats: makeSeats(), CreatedAt: now},
-		Showtime{ID: "show-002", Movie: "Race Condition: Final Cut", Theater: "Cinema 2", StartsAt: now.Add(4 * time.Hour), Seats: makeSeats(), CreatedAt: now},
-	}
-	_, err = a.db.Collection("showtimes").InsertMany(ctx, showtimes)
-	return err
+	return a.ensureSeedShowtimes(ctx)
 }
 
 func makeSeats() []Seat {
@@ -713,6 +712,42 @@ func (a *App) ensureSeatCapacity(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) ensureSeedShowtimes(ctx context.Context) error {
+	now := time.Now().UTC()
+	seedShowtimes := []Showtime{
+		{ID: "show-001", Movie: "Official After Party Awakenings Festival 2018", Theater: "Cinema 1", StartsAt: now.Add(2 * time.Hour), Seats: makeSeats(), CreatedAt: now},
+		{ID: "show-002", Movie: "Tomorrowland 2019 - Weekend 1 Full Madness Pass", Theater: "Cinema 2", StartsAt: now.Add(3 * time.Hour), Seats: makeSeats(), CreatedAt: now},
+		{ID: "show-003", Movie: "Dekmantel Festival 2019 - Wednesday", Theater: "Cinema 3", StartsAt: now.Add(4 * time.Hour), Seats: makeSeats(), CreatedAt: now},
+		{ID: "show-004", Movie: "Katy Perry & Santana - New Orleans Jazz and Heritage", Theater: "Cinema 4", StartsAt: now.Add(5 * time.Hour), Seats: makeSeats(), CreatedAt: now},
+	}
+
+	for _, showtime := range seedShowtimes {
+		update := bson.M{
+			"$set": bson.M{
+				"movie":     showtime.Movie,
+				"theater":   showtime.Theater,
+				"starts_at": showtime.StartsAt,
+			},
+			"$setOnInsert": bson.M{
+				"_id":        showtime.ID,
+				"seats":      showtime.Seats,
+				"created_at": showtime.CreatedAt,
+			},
+		}
+		_, err := a.db.Collection("showtimes").UpdateOne(
+			ctx,
+			bson.M{"_id": showtime.ID},
+			update,
+			options.Update().SetUpsert(true),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return a.ensureSeatCapacity(ctx)
 }
 
 func (a *App) publishEvent(ctx context.Context, event BookingEvent) {
