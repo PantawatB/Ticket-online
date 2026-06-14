@@ -519,8 +519,12 @@ async function confirmBooking() {
 
 async function loadAdminData() {
   if (user.value?.role !== 'ADMIN') return
-  bookings.value = await request<Booking[]>('/api/admin/bookings')
-  auditLogs.value = await request<AuditLog[]>('/api/admin/audit-logs')
+  const [nextBookings, nextAuditLogs] = await Promise.all([
+    request<Booking[]>('/api/admin/bookings'),
+    request<AuditLog[]>('/api/admin/audit-logs'),
+  ])
+  bookings.value = Array.isArray(nextBookings) ? nextBookings : []
+  auditLogs.value = Array.isArray(nextAuditLogs) ? nextAuditLogs : []
 }
 
 function connectSocket() {

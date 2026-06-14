@@ -560,6 +560,9 @@ func (a *App) handleAdminBookings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if bookings == nil {
+		bookings = []Booking{}
+	}
 	writeJSON(w, http.StatusOK, bookings)
 }
 
@@ -573,6 +576,9 @@ func (a *App) handleAdminAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if err := cursor.All(r.Context(), &logs); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if logs == nil {
+		logs = []AuditLog{}
 	}
 	writeJSON(w, http.StatusOK, logs)
 }
