@@ -56,7 +56,7 @@ interface MarketingEvent {
   date: string
   venue: string
   category: string
-  price: string
+  price: number
   description: string
   showtimeId: string
   posterClass: string
@@ -98,7 +98,7 @@ const marketingEvents: MarketingEvent[] = [
     date: '10 December, 2019',
     venue: 'Bangkok Hall',
     category: 'Festival',
-    price: '€ 73.54',
+    price: 2790,
     description: 'A late-night electronic set with reserved cinema-style seats for the demo booking flow.',
     showtimeId: 'show-001',
     posterClass: 'poster-bien',
@@ -109,7 +109,7 @@ const marketingEvents: MarketingEvent[] = [
     date: '12 September, 2019',
     venue: 'Warehouse Stage',
     category: 'Concert',
-    price: '€ 60.90',
+    price: 2290,
     description: 'A compact live show experience mapped to realtime seat locking and mock checkout.',
     showtimeId: 'show-003',
     posterClass: 'poster-troh',
@@ -120,7 +120,7 @@ const marketingEvents: MarketingEvent[] = [
     date: '24 August, 2019',
     venue: 'Grand Park',
     category: 'Festival',
-    price: '€ 95.50',
+    price: 3590,
     description: 'Weekend pass preview with realtime availability and a five-minute reservation timer.',
     showtimeId: 'show-002',
     posterClass: 'poster-lalala',
@@ -131,7 +131,7 @@ const marketingEvents: MarketingEvent[] = [
     date: '10 December, 2019',
     venue: 'Heritage Arena',
     category: 'Jazz',
-    price: '€ 99.00',
+    price: 3890,
     description: 'A seated event demo where ticket purchase starts with a temporary distributed lock.',
     showtimeId: 'show-004',
     posterClass: 'poster-get',
@@ -523,13 +523,12 @@ function lockCountdownFromTime(value?: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-function eventPriceNumber(event: MarketingEvent | null) {
-  if (!event) return 0
-  return Number(event.price.replace(/[^\d.]/g, '')) || 0
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(value)
 }
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(value)
+function eventPriceNumber(event: MarketingEvent | null) {
+  return event?.price ?? 0
 }
 
 function bookingEventName(booking: Booking) {
@@ -562,7 +561,7 @@ function bookingEventName(booking: Booking) {
 
       <section v-if="!isBookingView" class="marketing-shell" aria-labelledby="login-title">
         <section class="marketing-hero">
-          <h1 id="login-title">Selling Electronic Tickets On The Webpage Ticket Online</h1>
+          <h1 id="login-title">One stop service online Ticket website</h1>
 
           <form class="search-showcase" role="search" @submit.prevent>
             <label class="search-category" for="event-category">
@@ -602,7 +601,7 @@ function bookingEventName(booking: Booking) {
               @keydown.enter="openEvent(event)"
             >
               <div class="marketing-poster" :class="event.posterClass">
-                <span class="poster-price">{{ event.price }}</span>
+                <span class="poster-price">{{ formatMoney(event.price) }}</span>
               </div>
               <div class="marketing-body">
                 <h3>{{ event.title }}</h3>
@@ -620,7 +619,7 @@ function bookingEventName(booking: Booking) {
         <aside class="event-summary-panel" aria-label="Event details">
           <button class="ghost-button back-button" type="button" @click="backToEvents">Back to events</button>
           <div v-if="selectedEvent" class="summary-poster marketing-poster" :class="selectedEvent.posterClass">
-            <span class="poster-price">{{ selectedEvent.price }}</span>
+            <span class="poster-price">{{ formatMoney(selectedEvent.price) }}</span>
           </div>
           <div class="panel-heading">
             <p class="eyebrow">Selected Event</p>
@@ -759,7 +758,7 @@ function bookingEventName(booking: Booking) {
             <div class="dialog-meta">
               <span>{{ selectedEvent.date }}</span>
               <span>{{ selectedEvent.venue }}</span>
-              <span>{{ selectedEvent.price }}</span>
+            <span>{{ formatMoney(selectedEvent.price) }}</span>
             </div>
             <button class="primary-button dialog-action" type="button" :disabled="loading" @click="handleEventAction">
               {{ user ? 'Buy Ticket' : 'Continue with Google' }}
