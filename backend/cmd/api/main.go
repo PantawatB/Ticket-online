@@ -517,6 +517,13 @@ func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 	a.redis.Del(r.Context(), seatLockKey(input.ShowtimeID, input.SeatID))
 	a.publishEvent(r.Context(), BookingEvent{Type: "Booking Success", Message: "booking confirmed", UserID: user.ID, ShowtimeID: input.ShowtimeID, SeatID: input.SeatID})
 	a.broadcastSeats(r.Context(), input.ShowtimeID)
+	a.hub.Broadcast(input.ShowtimeID, map[string]any{
+		"type":        "booking.notification",
+		"message":     "Booking confirmed successfully",
+		"event_title": input.EventTitle,
+		"seat_id":     input.SeatID,
+		"user_name":   user.Name,
+	})
 	writeJSON(w, http.StatusOK, booking)
 }
 

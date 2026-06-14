@@ -84,12 +84,17 @@ const selectedCategory = ref('All Category')
 const isBookingView = ref(false)
 const loading = ref(false)
 const message = ref('')
+const notification = ref('')
 const authError = ref('')
 const socketState = ref('offline')
 const nowTick = ref(Date.now())
 const paymentDialogOpen = ref(false)
+const adminMovieFilter = ref('')
+const adminDateFilter = ref('')
+const adminUserFilter = ref('')
 let ws: WebSocket | null = null
 let timer: number | undefined
+let notificationTimer: number | undefined
 
 const marketingEvents: MarketingEvent[] = [
   {
@@ -200,6 +205,42 @@ const selectedTotal = computed(() => selectedSeats.value.length * eventPriceNumb
 
 const hasOpenDialog = computed(() => paymentDialogOpen.value || Boolean(selectedEvent.value && !isBookingView.value))
 
+const filteredAdminBookings = computed(() => {
+  const movie = adminMovieFilter.value.trim().toLowerCase()
+  const date = adminDateFilter.value
+  const userQuery = adminUserFilter.value.trim().toLowerCase()
+
+  return bookings.value.filter((booking) => {
+    const eventName = bookingEventName(booking).toLowerCase()
+    const bookedDate = booking.created_at ? booking.created_at.slice(0, 10) : ''
+    const userText = `${booking.user_name ?? ''} ${booking.user_email}`.toLowerCase()
+
+    return (
+      (!movie || eventName.includes(movie)) &&
+      (!date || bookedDate === date) &&
+      (!userQuery || userText.includes(userQuery))
+    )
+  })
+})
+
+const filteredAdminAuditLogs = computed(() => {
+  const movie = adminMovieFilter.value.trim().toLowerCase()
+  const date = adminDateFilter.value
+  const userQuery = adminUserFilter.value.trim().toLowerCase()
+
+  return auditLogs.value.filter((log) => {
+    const eventName = eventByShowtime.value.get(log.showtime_id ?? '')?.title.toLowerCase() ?? ''
+    const logDate = log.created_at ? log.created_at.slice(0, 10) : ''
+    const userText = (log.user_id ?? '').toLowerCase()
+
+    return (
+      (!movie || eventName.includes(movie) || (log.showtime_id ?? '').toLowerCase().includes(movie)) &&
+      (!date || logDate === date) &&
+      (!userQuery || userText.includes(userQuery))
+    )
+  })
+})
+
 const socketLabel = computed(() => {
   const labels: Record<string, string> = {
     connecting: 'syncing',
@@ -253,6 +294,7 @@ onMounted(async () => {
 onUnmounted(() => {
   closeSocket()
   if (timer) window.clearInterval(timer)
+  if (notificationTimer) window.clearTimeout(notificationTimer)
   document.body.classList.remove('dialog-open')
 })
 
@@ -377,6 +419,14 @@ function backToEvents() {
   paymentDialogOpen.value = false
 }
 
+function showNotification(value: string) {
+  notification.value = value
+  if (notificationTimer) window.clearTimeout(notificationTimer)
+  notificationTimer = window.setTimeout(() => {
+    notification.value = ''
+  }, 4200)
+}
+
 function selectSeat(seat: Seat) {
   if (seat.status !== 'AVAILABLE') return
   if (selectedSeatIds.value.includes(seat.id)) {
@@ -453,7 +503,9 @@ async function confirmBooking() {
         }),
       })
     }
-    message.value = `Booking confirmed for ${seatsToConfirm.map((seat) => seat.id).join(', ')}.`
+    const confirmedSeats = seatsToConfirm.map((seat) => seat.id).join(', ')
+    message.value = `Booking confirmed for ${confirmedSeats}.`
+    showNotification(`Booking confirmed: ${selectedEvent.value?.title ?? 'Ticket'} · Seat ${confirmedSeats}`)
     paymentDialogOpen.value = false
     selectedSeatIds.value = []
     await loadSeats()
@@ -466,6 +518,7 @@ async function confirmBooking() {
 }
 
 async function loadAdminData() {
+  if (user.value?.role !== 'ADMIN') return
   bookings.value = await request<Booking[]>('/api/admin/bookings')
   auditLogs.value = await request<AuditLog[]>('/api/admin/audit-logs')
 }
@@ -493,6 +546,10 @@ function connectSocket() {
         const seat = seats.value.find((item) => item.id === id)
         return seat && seat.status !== 'BOOKED' && (seat.status !== 'LOCKED' || seat.locked_by === user.value?.id)
       })
+    } else if (payload.type === 'booking.notification') {
+      showNotification(
+        `${payload.message}: ${payload.event_title || selectedEvent.value?.title || 'Ticket'} · Seat ${payload.seat_id}`,
+      )
     }
   }
 }
@@ -737,27 +794,44 @@ function bookingEventName(booking: Booking) {
             <p class="eyebrow">Admin</p>
             <h2>Bookings & audit logs</h2>
           </div>
-          <button class="ghost-button" type="button" @click="loadAdminData">Refresh</button>
+          <div class="admin-toolbar">
+            <label>
+              <span>Movie</span>
+              <input v-model="adminMovieFilter" type="search" placeholder="Event or movie name" />
+            </label>
+            <label>
+              <span>Date</span>
+              <input v-model="adminDateFilter" type="date" />
+            </label>
+            <label>
+              <span>User</span>
+              <input v-model="adminUserFilter" type="search" placeholder="Name or email" />
+            </label>
+            <button class="ghost-button" type="button" @click="loadAdminData">Refresh</button>
+          </div>
 
           <div class="admin-columns">
             <div>
-              <h3>Bookings</h3>
+              <h3>Bookings · {{ filteredAdminBookings.length }}</h3>
               <div class="admin-booking-table">
-                <article v-for="booking in bookings" :key="booking.id" class="admin-booking-row">
+                <article v-for="booking in filteredAdminBookings" :key="booking.id" class="admin-booking-row">
                   <b>{{ booking.user_name || 'Google User' }}</b>
                   <span>{{ booking.user_email }}</span>
                   <strong>{{ bookingEventName(booking) }}</strong>
                   <em>Seat {{ booking.seat_id }} · {{ booking.status }}</em>
                 </article>
+                <p v-if="!filteredAdminBookings.length" class="admin-empty">No bookings match these filters.</p>
               </div>
             </div>
             <div>
-              <h3>Audit Logs</h3>
+              <h3>Audit Logs · {{ filteredAdminAuditLogs.length }}</h3>
               <ul>
-                <li v-for="log in auditLogs" :key="log.id">
+                <li v-for="log in filteredAdminAuditLogs" :key="log.id">
                   <b>{{ log.type }}</b>
+                  <span>{{ eventByShowtime.get(log.showtime_id || '')?.title || log.showtime_id || '-' }}</span>
                   <span>{{ log.seat_id || '-' }} · {{ log.message }}</span>
                 </li>
+                <li v-if="!filteredAdminAuditLogs.length" class="admin-empty">No audit logs match these filters.</li>
               </ul>
             </div>
           </div>
@@ -804,6 +878,11 @@ function bookingEventName(booking: Booking) {
           </div>
         </section>
       </div>
+
+      <aside v-if="notification" class="notification-toast" role="status" aria-live="polite">
+        <b>Notification</b>
+        <span>{{ notification }}</span>
+      </aside>
     </section>
   </main>
 </template>
