@@ -567,13 +567,15 @@ function bookingEventName(booking: Booking) {
           Continue with Google
         </button>
 
-        <div v-else class="user-chip">
-          <img v-if="user.picture" :src="user.picture" alt="" />
-          <span>{{ user.name || user.email }}</span>
-          <strong>{{ user.role }}</strong>
-        </div>
+        <div v-else class="account-actions">
+          <div class="user-chip">
+            <img v-if="user.picture" :src="user.picture" alt="" />
+            <span>{{ user.name || user.email }}</span>
+            <strong>{{ user.role }}</strong>
+          </div>
 
-        <button v-if="user" class="ghost-button logout-button" type="button" @click="logout">Logout</button>
+          <button class="ghost-button logout-button" type="button" @click="logout">Logout</button>
+        </div>
       </header>
 
       <section v-if="!isBookingView" class="marketing-shell" aria-labelledby="login-title">

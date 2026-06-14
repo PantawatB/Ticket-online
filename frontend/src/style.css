@@ -92,12 +92,19 @@ button:disabled {
   background: #ffffff;
 }
 
+.account-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-left: auto;
+}
+
 .user-chip {
   display: inline-flex;
   align-items: center;
   min-width: 0;
   gap: 10px;
-  margin-left: auto;
   padding: 6px 10px;
   border: 1px solid #dde3ee;
   border-radius: 8px;
@@ -1042,18 +1049,37 @@ button:disabled {
     margin-left: 0;
   }
 
-  .user-chip {
+  .account-actions {
     order: 2;
-    flex: 1 1 260px;
-    width: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+    gap: 8px;
     margin-left: 0;
+    padding: 8px;
+    border: 1px solid #dde5f0;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 12px 28px rgba(30, 42, 72, 0.06);
+    backdrop-filter: blur(10px);
+  }
+
+  .user-chip {
+    width: 100%;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
   }
 
   .logout-button {
-    order: 3;
     width: auto;
-    margin-left: auto;
-    padding: 0 18px;
+    min-width: 86px;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 9px;
+    color: #1c2d4f;
+    background: #e9eef6;
   }
 
   .user-chip span {
@@ -1220,15 +1246,18 @@ button:disabled {
     align-items: center;
   }
 
+  .account-actions {
+    grid-template-columns: 1fr;
+    padding: 8px;
+  }
+
   .user-chip {
-    flex: 1 1 100%;
-    order: 2;
+    min-height: 46px;
   }
 
   .logout-button {
-    order: 3;
-    width: auto;
-    min-width: 112px;
+    width: 100%;
+    min-width: 0;
     margin-left: 0;
   }
 
