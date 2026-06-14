@@ -198,6 +198,18 @@ const lockExpiresAt = computed(() =>
 
 const selectedTotal = computed(() => selectedSeats.value.length * eventPriceNumber(selectedEvent.value))
 
+const hasOpenDialog = computed(() => paymentDialogOpen.value || Boolean(selectedEvent.value && !isBookingView.value))
+
+const socketLabel = computed(() => {
+  const labels: Record<string, string> = {
+    connecting: 'syncing',
+    live: 'live',
+    offline: 'offline',
+    error: 'retrying',
+  }
+  return labels[socketState.value] ?? socketState.value
+})
+
 const seatsByRow = computed(() => {
   const rows = new Map<string, Seat[]>()
   for (const seat of seats.value) {
@@ -241,6 +253,11 @@ onMounted(async () => {
 onUnmounted(() => {
   closeSocket()
   if (timer) window.clearInterval(timer)
+  document.body.classList.remove('dialog-open')
+})
+
+watch(hasOpenDialog, (isOpen) => {
+  document.body.classList.toggle('dialog-open', isOpen)
 })
 
 watch(selectedShowtimeId, async (id) => {
@@ -556,7 +573,7 @@ function bookingEventName(booking: Booking) {
           <strong>{{ user.role }}</strong>
         </div>
 
-        <button v-if="user" class="ghost-button" type="button" @click="logout">Logout</button>
+        <button v-if="user" class="ghost-button logout-button" type="button" @click="logout">Logout</button>
       </header>
 
       <section v-if="!isBookingView" class="marketing-shell" aria-labelledby="login-title">
@@ -636,7 +653,7 @@ function bookingEventName(booking: Booking) {
               <h2 id="seat-title">{{ selectedEvent?.title }}</h2>
               <span>{{ selectedShowtime?.theater }} · {{ selectedShowtime ? formatDate(selectedShowtime.starts_at) : '' }}</span>
             </div>
-            <span class="socket-pill">{{ socketState }}</span>
+            <span class="socket-pill" :class="socketState">{{ socketLabel }}</span>
           </div>
 
           <div class="screen">SCREEN</div>
@@ -749,7 +766,7 @@ function bookingEventName(booking: Booking) {
         <section class="event-dialog" role="dialog" aria-modal="true" :aria-label="selectedEvent.title">
           <button class="dialog-close" type="button" aria-label="Close" @click="closeEventDialog">x</button>
           <div class="dialog-poster marketing-poster" :class="selectedEvent.posterClass">
-            <span class="poster-price">{{ selectedEvent.price }}</span>
+            <span class="poster-price">{{ formatMoney(selectedEvent.price) }}</span>
           </div>
           <div class="dialog-content">
             <p class="eyebrow">{{ selectedEvent.category }}</p>
@@ -758,7 +775,7 @@ function bookingEventName(booking: Booking) {
             <div class="dialog-meta">
               <span>{{ selectedEvent.date }}</span>
               <span>{{ selectedEvent.venue }}</span>
-            <span>{{ formatMoney(selectedEvent.price) }}</span>
+              <span>{{ formatMoney(selectedEvent.price) }}</span>
             </div>
             <button class="primary-button dialog-action" type="button" :disabled="loading" @click="handleEventAction">
               {{ user ? 'Buy Ticket' : 'Continue with Google' }}
