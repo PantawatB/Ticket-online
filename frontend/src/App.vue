@@ -421,6 +421,7 @@ function backToEvents() {
 
 function showNotification(value: string) {
   notification.value = value
+  console.info('[Ticket Online notification]', value)
   if (notificationTimer) window.clearTimeout(notificationTimer)
   notificationTimer = window.setTimeout(() => {
     notification.value = ''
@@ -505,7 +506,6 @@ async function confirmBooking() {
     }
     const confirmedSeats = seatsToConfirm.map((seat) => seat.id).join(', ')
     message.value = `Booking confirmed for ${confirmedSeats}.`
-    showNotification(`Booking confirmed: ${selectedEvent.value?.title ?? 'Ticket'} · Seat ${confirmedSeats}`)
     paymentDialogOpen.value = false
     selectedSeatIds.value = []
     await loadSeats()

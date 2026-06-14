@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strings"
@@ -35,17 +36,22 @@ const (
 )
 
 type Config struct {
-	Port              string
-	FrontendURL       string
-	MongoURI          string
-	MongoDB           string
-	RedisAddr         string
-	GoogleClientID    string
+	Port               string
+	FrontendURL        string
+	MongoURI           string
+	MongoDB            string
+	RedisAddr          string
+	GoogleClientID     string
 	GoogleClientSecret string
-	GoogleRedirectURL string
-	JWTSecret         string
-	AdminEmails       map[string]bool
-	LockTTL           time.Duration
+	GoogleRedirectURL  string
+	JWTSecret          string
+	AdminEmails        map[string]bool
+	LockTTL            time.Duration
+	SMTPHost           string
+	SMTPPort           string
+	SMTPUsername       string
+	SMTPPassword       string
+	SMTPFrom           string
 }
 
 type App struct {
@@ -188,6 +194,11 @@ func loadConfig() Config {
 		JWTSecret:          env("JWT_SECRET", "change-me-in-env"),
 		AdminEmails:        admins,
 		LockTTL:            ttl,
+		SMTPHost:           env("SMTP_HOST", ""),
+		SMTPPort:           env("SMTP_PORT", "587"),
+		SMTPUsername:       env("SMTP_USERNAME", ""),
+		SMTPPassword:       env("SMTP_PASSWORD", ""),
+		SMTPFrom:           env("SMTP_FROM", ""),
 	}
 }
 
@@ -372,7 +383,7 @@ func (a *App) upsertUser(ctx context.Context, profile *GoogleProfile) (*User, er
 		UpdatedAt: now,
 	}
 	update := bson.M{
-		"$set": bson.M{"email": user.Email, "name": user.Name, "picture": user.Picture, "role": user.Role, "updated_at": now},
+		"$set":         bson.M{"email": user.Email, "name": user.Name, "picture": user.Picture, "role": user.Role, "updated_at": now},
 		"$setOnInsert": bson.M{"created_at": now},
 	}
 	_, err := a.db.Collection("users").UpdateByID(ctx, user.ID, update, options.Update().SetUpsert(true))
@@ -516,6 +527,7 @@ func (a *App) handleConfirmBooking(w http.ResponseWriter, r *http.Request) {
 	}
 	a.redis.Del(r.Context(), seatLockKey(input.ShowtimeID, input.SeatID))
 	a.publishEvent(r.Context(), BookingEvent{Type: "Booking Success", Message: "booking confirmed", UserID: user.ID, ShowtimeID: input.ShowtimeID, SeatID: input.SeatID})
+	go a.notifyBookingEmail(booking)
 	a.broadcastSeats(r.Context(), input.ShowtimeID)
 	a.hub.Broadcast(input.ShowtimeID, map[string]any{
 		"type":        "booking.notification",
@@ -774,6 +786,53 @@ func (a *App) consumeEvents(ctx context.Context) {
 		audit := AuditLog{ID: randomID(), Type: event.Type, Message: event.Message, UserID: event.UserID, ShowtimeID: event.ShowtimeID, SeatID: event.SeatID, CreatedAt: time.Now().UTC()}
 		_, _ = a.db.Collection("audit_logs").InsertOne(ctx, audit)
 	}
+}
+
+func (a *App) notifyBookingEmail(booking Booking) {
+	if booking.UserEmail == "" {
+		return
+	}
+	subject, body := buildBookingEmail(booking)
+	if a.cfg.SMTPHost == "" || a.cfg.SMTPFrom == "" {
+		log.Printf("mock email notification to=%s subject=%q body=%q", booking.UserEmail, subject, body)
+		return
+	}
+	if err := sendSMTPEmail(a.cfg, booking.UserEmail, subject, body); err != nil {
+		log.Printf("email notification failed to=%s: %v", booking.UserEmail, err)
+	}
+}
+
+func buildBookingEmail(booking Booking) (string, string) {
+	eventTitle := booking.EventTitle
+	if eventTitle == "" {
+		eventTitle = booking.ShowtimeID
+	}
+	subject := "Ticket Online booking confirmed"
+	body := fmt.Sprintf(
+		"Your booking is confirmed.\n\nEvent: %s\nSeat: %s\nStatus: %s\nBooking ID: %s\n\nThank you for booking with Ticket Online.",
+		eventTitle,
+		booking.SeatID,
+		booking.Status,
+		booking.ID,
+	)
+	return subject, body
+}
+
+func sendSMTPEmail(cfg Config, to, subject, body string) error {
+	addr := cfg.SMTPHost + ":" + cfg.SMTPPort
+	headers := []string{
+		"From: " + cfg.SMTPFrom,
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+	}
+	message := strings.Join(headers, "\r\n") + "\r\n\r\n" + body
+	var auth smtp.Auth
+	if cfg.SMTPUsername != "" || cfg.SMTPPassword != "" {
+		auth = smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPHost)
+	}
+	return smtp.SendMail(addr, auth, cfg.SMTPFrom, []string{to}, []byte(message))
 }
 
 func (a *App) releaseExpiredLocks(ctx context.Context) {
